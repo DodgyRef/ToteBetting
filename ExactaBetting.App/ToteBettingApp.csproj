@@ -64,7 +64,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\ExactaBetting.Core\ExactaBetting.Core.csproj" />
+	  <ProjectReference Include="..\ExactaBetting.Core\ToteBettingCore.csproj" />
 	</ItemGroup>
 
 </Project>
