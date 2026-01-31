@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:ExactaBetting.App.ViewModels"
+             xmlns:models="clr-namespace:ExactaBetting.Core.Models;assembly=ExactaBetting.Core"
+             x:Class="ExactaBetting.App.MainPage"
+             x:DataType="vm:MainViewModel"
+             Title="EXACTA Value Bets">
+
+    <Grid RowDefinitions="Auto,*" Padding="20" RowSpacing="16">
+        <ScrollView Grid.Row="0">
+            <VerticalStackLayout Spacing="16">
+
+            <!-- Settings Card -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="8"
+                   Padding="16"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Settings" FontAttributes="Bold" FontSize="18" />
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                        <Label Grid.Row="0" Grid.Column="0" Text="Value threshold (%)" VerticalOptions="Center" />
+                        <Entry Grid.Row="0" Grid.Column="1"
+                               Text="{Binding ValueThresholdPercent, Mode=TwoWay}"
+                               Keyboard="Numeric" Placeholder="10" />
+
+                        <Label Grid.Row="1" Grid.Column="0" Text="Min pool size" VerticalOptions="Center" />
+                        <Entry Grid.Row="1" Grid.Column="1"
+                               Text="{Binding MinimumPoolSize, Mode=TwoWay}"
+                               Keyboard="Numeric" Placeholder="5000" />
+
+                        <Label Grid.Row="2" Grid.Column="0" Text="Stake (dilution calc)" VerticalOptions="Center" />
+                        <Entry Grid.Row="2" Grid.Column="1"
+                               Text="{Binding DefaultStake, Mode=TwoWay}"
+                               Keyboard="Numeric" Placeholder="100" />
+
+                        <Label Grid.Row="3" Grid.Column="0" Text="Top bets to show" VerticalOptions="Center" />
+                        <Entry Grid.Row="3" Grid.Column="1"
+                               Text="{Binding TopBetCount, Mode=TwoWay}"
+                               Keyboard="Numeric" Placeholder="5" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Race Selection -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="8"
+                   Padding="16"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Race" FontAttributes="Bold" FontSize="18" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <Picker x:Name="RacePicker"
+                                Grid.Column="0"
+                                Title="Select race"
+                                ItemsSource="{Binding AvailableRaces}"
+                                SelectedItem="{Binding SelectedRace, Mode=TwoWay}"
+                                HorizontalOptions="Fill" />
+                        <HorizontalStackLayout Grid.Column="1" Spacing="8">
+                            <Button Text="Load Races"
+                                    Command="{Binding LoadRacesCommand}"
+                                    IsEnabled="{Binding IsBusy, Converter={StaticResource InvertedBool}}" />
+                            <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
+                        </HorizontalStackLayout>
+                    </Grid>
+                    <Button Text="Refresh Value Bets"
+                            Command="{Binding RefreshValueBetsCommand}"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource InvertedBool}}"
+                            BackgroundColor="{StaticResource Primary}" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Status -->
+            <Label Text="{Binding StatusMessage}"
+                   LineBreakMode="WordWrap"
+                   TextColor="{StaticResource Gray600}"
+                   FontSize="14" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- Value Bets - permanently visible scrollable area -->
+        <Frame Grid.Row="1"
+               BorderColor="{StaticResource Primary}"
+               CornerRadius="8"
+               Padding="16"
+               HasShadow="True"
+               VerticalOptions="FillAndExpand"
+               MinimumHeightRequest="200">
+            <Grid RowDefinitions="Auto,*">
+                <Label Grid.Row="0" Text="Top Value Bets" FontAttributes="Bold" FontSize="18" Margin="0,0,0,8" />
+                <ScrollView Grid.Row="1" VerticalScrollBarVisibility="Always">
+                    <VerticalStackLayout BindableLayout.ItemsSource="{Binding ValueBets}" Spacing="8">
+                        <BindableLayout.EmptyView>
+                            <Label Text="Select a race and tap Refresh to see value bets."
+                                   TextColor="{StaticResource Gray600}"
+                                   VerticalOptions="Center"
+                                   HorizontalOptions="Center"
+                                   Margin="0,40" />
+                        </BindableLayout.EmptyView>
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="models:ValueBet">
+                                <Frame Margin="0,0,0,8"
+                                       BorderColor="{StaticResource Primary}"
+                                       CornerRadius="6"
+                                       Padding="12"
+                                       HasShadow="False">
+                                    <Grid RowDefinitions="Auto,Auto,Auto"
+                                          ColumnDefinitions="*,*,*,*,*,*"
+                                          RowSpacing="4"
+                                          ColumnSpacing="12">
+                                        <Label Grid.Row="0" Grid.ColumnSpan="6"
+                                               Text="{Binding DisplayName}"
+                                               FontAttributes="Bold"
+                                               FontSize="16" />
+                                        <Label Grid.Row="1" Grid.Column="0" Text="Value %" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                        <Label Grid.Row="1" Grid.Column="1" Text="TOTE Odds" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                        <Label Grid.Row="1" Grid.Column="2" Text="Fair Odds" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                        <Label Grid.Row="1" Grid.Column="3" Text="Pool" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                        <Label Grid.Row="1" Grid.Column="4" Text="Effective" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                        <Label Grid.Row="1" Grid.Column="5" Text="Dilution" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                        <Label Grid.Row="2" Grid.Column="0">
+                                            <Label.Text>
+                                                <Binding Path="ValuePercent" StringFormat="{}{0:F1}%" />
+                                            </Label.Text>
+                                        </Label>
+                                        <Label Grid.Row="2" Grid.Column="1">
+                                            <Label.Text>
+                                                <Binding Path="ToteOdds" StringFormat="{}{0:F1}" />
+                                            </Label.Text>
+                                        </Label>
+                                        <Label Grid.Row="2" Grid.Column="2">
+                                            <Label.Text>
+                                                <Binding Path="FairOdds" StringFormat="{}{0:F1}" />
+                                            </Label.Text>
+                                        </Label>
+                                        <Label Grid.Row="2" Grid.Column="3">
+                                            <Label.Text>
+                                                <Binding Path="PoolSize" StringFormat="{}{0:N0}" />
+                                            </Label.Text>
+                                        </Label>
+                                        <Label Grid.Row="2" Grid.Column="4">
+                                            <Label.Text>
+                                                <Binding Path="EffectiveOdds" StringFormat="{}{0:F1}" />
+                                            </Label.Text>
+                                        </Label>
+                                        <Label Grid.Row="2" Grid.Column="5">
+                                            <Label.Text>
+                                                <Binding Path="DilutionFactor" StringFormat="{}{0:P1}" />
+                                            </Label.Text>
+                                        </Label>
+                                    </Grid>
+                                </Frame>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </ScrollView>
+            </Grid>
+        </Frame>
+    </Grid>
+</ContentPage>
