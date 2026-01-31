@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using ExactaBetting.App.Services;
 using ExactaBetting.App.ViewModels;
 using ExactaBetting.Core.Services;
@@ -18,7 +19,14 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
 			});
 
-		builder.Services.AddSingleton<IToteApiService, SampleToteApiService>();
+		builder.Services.AddHttpClient(ToteGraphQLApiService.HttpClientName, static client =>
+		{
+			client.BaseAddress = new Uri(ToteGraphQLApiService.ProductionEndpoint);
+			// Tote API expects Authorization: Api-Key <key> (same as working Tote.slnx project)
+			client.DefaultRequestHeaders.Authorization =
+				new AuthenticationHeaderValue(ToteGraphQLApiService.ApiKeyScheme, ToteGraphQLApiService.ApiKeyValue);
+		});
+		builder.Services.AddSingleton<IToteApiService, ToteGraphQLApiService>();
 		builder.Services.AddSingleton<IValueCalculator, ValueCalculator>();
 		builder.Services.AddSingleton<ValueBetService>();
 		builder.Services.AddTransient<MainViewModel>();

@@ -20,6 +20,9 @@ public partial class MainViewModel : ObservableObject
     private ObservableCollection<ValueBet> _valueBets = [];
 
     [ObservableProperty]
+    private ObservableCollection<ValueBet> _allValueCalculations = [];
+
+    [ObservableProperty]
     private string _statusMessage = "Select a race and tap Refresh to analyze value bets.";
 
     [ObservableProperty]
@@ -75,6 +78,7 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         StatusMessage = "Analyzing value bets...";
         ValueBets.Clear();
+        AllValueCalculations.Clear();
         try
         {
             var settings = new ValueBetSettings
@@ -84,12 +88,19 @@ public partial class MainViewModel : ObservableObject
                 DefaultStakeForDilution = DefaultStake,
                 TopBetCount = TopBetCount
             };
-            var bets = await _valueBetService.GetTopValueBetsAsync(SelectedRace, settings);
-            foreach (var b in bets)
+            var all = await _valueBetService.GetAllValueCalculationsAsync(SelectedRace, settings);
+            foreach (var b in all)
+                AllValueCalculations.Add(b);
+            var top = all
+                .Where(b => b.ValuePercent >= ValueThresholdPercent)
+                .OrderByDescending(b => b.ValuePercent)
+                .Take(TopBetCount)
+                .ToList();
+            foreach (var b in top)
                 ValueBets.Add(b);
-            StatusMessage = bets.Count > 0
-                ? $"Found {bets.Count} value bet(s) for {SelectedRace}."
-                : $"No value bets above {ValueThresholdPercent}% threshold for {SelectedRace}.";
+            StatusMessage = top.Count > 0
+                ? $"Found {top.Count} value bet(s) for {SelectedRace}. {all.Count} total combinations."
+                : $"No value bets above {ValueThresholdPercent}% threshold for {SelectedRace}. {all.Count} total combinations.";
         }
         catch (Exception ex)
         {
@@ -99,5 +110,13 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task OpenAllValueCalculationsAsync()
+    {
+        if (AllValueCalculations.Count == 0) return;
+        var bets = AllValueCalculations.ToList();
+        await Shell.Current.GoToAsync("AllValueCalculations", new Dictionary<string, object> { ["Bets"] = bets });
     }
 }

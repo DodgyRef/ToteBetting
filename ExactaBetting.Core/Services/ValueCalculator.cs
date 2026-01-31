@@ -29,10 +29,11 @@ public sealed class ValueCalculator : IValueCalculator
         return 1m / probability;
     }
 
+    /// <summary>Value % when offered odds (tote) beat fair odds. Positive = value bet (tote &gt; fair).</summary>
     public decimal GetValuePercent(decimal fairOdds, decimal toteOdds)
     {
-        if (toteOdds <= 0) return 0;
-        return (fairOdds / toteOdds - 1m) * 100m;
+        if (fairOdds <= 0) return 0;
+        return (toteOdds / fairOdds - 1m) * 100m;
     }
 
     public decimal GetDilutionFactor(decimal poolNetAmount, decimal stake)

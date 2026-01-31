@@ -19,7 +19,7 @@ public interface IValueCalculator
     decimal GetFairOdds(decimal probability);
 
     /// <summary>
-    /// Computes value percentage: (FairOdds / ToteOdds - 1) × 100.
+    /// Computes value percentage: (ToteOdds / FairOdds - 1) × 100. Positive when offered (tote) odds beat fair odds.
     /// </summary>
     decimal GetValuePercent(decimal fairOdds, decimal toteOdds);
 
