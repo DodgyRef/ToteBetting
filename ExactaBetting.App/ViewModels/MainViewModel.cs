@@ -10,6 +10,10 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly ValueBetService _valueBetService;
 
+    /// <summary>Per-race (and per-settings) cache. Invalidated when Load Races is pressed.</summary>
+    private bool _cacheInvalidatedByLoadRaces;
+    private readonly Dictionary<string, List<ValueBet>> _cacheByKey = new();
+
     [ObservableProperty]
     private ObservableCollection<string> _availableRaces = [];
 
@@ -51,6 +55,8 @@ public partial class MainViewModel : ObservableObject
         if (IsBusy) return;
         IsBusy = true;
         StatusMessage = "Loading races...";
+        _cacheInvalidatedByLoadRaces = true;
+        _cacheByKey.Clear();
         try
         {
             var races = await _valueBetService.GetAvailableRacesAsync();
@@ -71,10 +77,22 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private static string CacheKey(string race, decimal valueThreshold, decimal minPool, decimal stake, int topCount)
+        => $"{race}|{valueThreshold}|{minPool}|{stake}|{topCount}";
+
     [RelayCommand]
     private async Task RefreshValueBetsAsync()
     {
         if (IsBusy || string.IsNullOrEmpty(SelectedRace)) return;
+
+        var key = CacheKey(SelectedRace, ValueThresholdPercent, MinimumPoolSize, DefaultStake, TopBetCount);
+        if (!_cacheInvalidatedByLoadRaces && _cacheByKey.TryGetValue(key, out var cached))
+        {
+            ApplyCachedResults(cached);
+            StatusMessage = $"Loaded from cache ({ValueBets.Count} value bet(s), {AllValueCalculations.Count} total).";
+            return;
+        }
+
         IsBusy = true;
         StatusMessage = "Analyzing value bets...";
         ValueBets.Clear();
@@ -88,18 +106,16 @@ public partial class MainViewModel : ObservableObject
                 DefaultStakeForDilution = DefaultStake,
                 TopBetCount = TopBetCount
             };
-            var all = await _valueBetService.GetAllValueCalculationsAsync(SelectedRace, settings);
-            foreach (var b in all)
-                AllValueCalculations.Add(b);
-            var top = all
-                .Where(b => b.ValuePercent >= ValueThresholdPercent)
-                .OrderByDescending(b => b.ValuePercent)
-                .Take(TopBetCount)
-                .ToList();
-            foreach (var b in top)
-                ValueBets.Add(b);
-            StatusMessage = top.Count > 0
-                ? $"Found {top.Count} value bet(s) for {SelectedRace}. {all.Count} total combinations."
+            var all = (await _valueBetService.GetAllValueCalculationsAsync(SelectedRace, settings)).ToList();
+
+            _cacheByKey[key] = all;
+            _cacheInvalidatedByLoadRaces = false;
+
+            ApplyCachedResults(all);
+            var topCount = all.Count(b => b.ValuePercent >= ValueThresholdPercent);
+            var shown = Math.Min(topCount, TopBetCount);
+            StatusMessage = shown > 0
+                ? $"Found {shown} value bet(s) for {SelectedRace}. {all.Count} total combinations."
                 : $"No value bets above {ValueThresholdPercent}% threshold for {SelectedRace}. {all.Count} total combinations.";
         }
         catch (Exception ex)
@@ -110,6 +126,21 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    private void ApplyCachedResults(List<ValueBet> all)
+    {
+        ValueBets.Clear();
+        AllValueCalculations.Clear();
+        foreach (var b in all)
+            AllValueCalculations.Add(b);
+        var top = all
+            .Where(b => b.ValuePercent >= ValueThresholdPercent)
+            .OrderByDescending(b => b.ValuePercent)
+            .Take(TopBetCount)
+            .ToList();
+        foreach (var b in top)
+            ValueBets.Add(b);
     }
 
     [RelayCommand]

@@ -41,7 +41,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
     public async Task<IReadOnlyList<string>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
     {
         var races = await LoadRacesAsync(cancellationToken);
-        return races.Keys.OrderBy(k => k).ToList();
+        return [.. races.Keys.OrderBy(k => k)];
     }
 
     private async Task<IReadOnlyDictionary<string, RaceData>> LoadRacesAsync(CancellationToken cancellationToken)
