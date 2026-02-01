@@ -22,6 +22,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
 
     private readonly GraphQLHttpClient _graphqlClient;
     private Dictionary<string, RaceData>? _cache;
+    private Dictionary<string, (string TimeDisplay, string CountryCode)>? _eventInfoByRaceName;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
 
     public ToteGraphQLApiService(IHttpClientFactory httpClientFactory)
@@ -38,10 +39,28 @@ public sealed class ToteGraphQLApiService : IToteApiService
         return races.GetValueOrDefault(raceName);
     }
 
-    public async Task<IReadOnlyList<string>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
+    public void InvalidateCache()
+    {
+        _cache = null;
+        _eventInfoByRaceName = null;
+    }
+
+    public async Task<IReadOnlyList<AvailableRace>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
     {
         var races = await LoadRacesAsync(cancellationToken);
-        return [.. races.Keys.OrderBy(k => k)];
+        var eventInfo = _eventInfoByRaceName ?? new Dictionary<string, (string TimeDisplay, string CountryCode)>();
+        var list = new List<AvailableRace>();
+        foreach (var baseName in races.Keys.OrderBy(k => k))
+        {
+            var (timeDisplay, countryCode) = eventInfo.GetValueOrDefault(baseName, ("", ""));
+            var race = races[baseName];
+            var poolText = FormatPoolDisplay(race);
+            var displayName = string.IsNullOrEmpty(timeDisplay)
+                ? $"{baseName}{poolText}"
+                : $"{baseName} {timeDisplay}{poolText}";
+            list.Add(new AvailableRace { BaseName = baseName, DisplayName = displayName.Trim(), CountryCode = countryCode });
+        }
+        return list;
     }
 
     private async Task<IReadOnlyDictionary<string, RaceData>> LoadRacesAsync(CancellationToken cancellationToken)
@@ -56,6 +75,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
                 return _cache;
 
             var (exactaByRace, winByRace) = await LoadProductsAsync(cancellationToken);
+            _eventInfoByRaceName = await LoadEventsAsync(cancellationToken);
             var result = new Dictionary<string, RaceData>();
 
             foreach (var (raceName, exacta) in exactaByRace)
@@ -74,7 +94,10 @@ public sealed class ToteGraphQLApiService : IToteApiService
                     WinOdds = winOdds,
                     HorseNames = exacta.HorseNames,
                     ExactaOdds = exacta.ExactaOdds,
-                    PoolNetAmount = exacta.PoolNetAmount
+                    PoolNetAmount = exacta.PoolNetAmount,
+                    CarryInNetAmount = exacta.CarryInNetAmount,
+                    GuaranteeNetAmount = exacta.GuaranteeNetAmount,
+                    TopUpNetAmount = exacta.TopUpNetAmount
                 };
             }
 
@@ -87,6 +110,16 @@ public sealed class ToteGraphQLApiService : IToteApiService
         }
     }
 
+    private static string FormatPoolDisplay(RaceData race)
+    {
+        var parts = new List<string>();
+        parts.Add($"Pool £{race.PoolNetAmount:N0}");
+        parts.Add($"Carry-in £{race.CarryInNetAmount:N0}");
+        parts.Add($"Guarantee £{race.GuaranteeNetAmount:N0}");
+        parts.Add($"Top-up £{race.TopUpNetAmount:N0}");
+        return "  " + string.Join("  ", parts);
+    }
+
     private static IReadOnlyDictionary<int, decimal> DeriveSyntheticWinOdds(int horseCount)
     {
         var d = new Dictionary<int, decimal>();
@@ -95,7 +128,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
         return d;
     }
 
-    private async Task<(Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> ExactaOdds, decimal PoolNetAmount, bool HasLines)> ExactaByRace, Dictionary<string, IReadOnlyDictionary<int, decimal>> WinByRace)> LoadProductsAsync(CancellationToken ct)
+    private async Task<(Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> ExactaOdds, decimal PoolNetAmount, decimal CarryInNetAmount, decimal GuaranteeNetAmount, decimal TopUpNetAmount, bool HasLines)> ExactaByRace, Dictionary<string, IReadOnlyDictionary<int, decimal>> WinByRace)> LoadProductsAsync(CancellationToken ct)
     {
         var request = new GraphQLRequest { Query = GetRaceProductsQuery, Variables = null };
         var response = await _graphqlClient.SendQueryAsync<ProductsQueryData>(request, ct);
@@ -105,9 +138,9 @@ public sealed class ToteGraphQLApiService : IToteApiService
 
         var products = response.Data?.Products?.Nodes;
         if (products is null || products.Count == 0)
-            return (new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, bool)>(), new Dictionary<string, IReadOnlyDictionary<int, decimal>>());
+            return (new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, bool)>(), new Dictionary<string, IReadOnlyDictionary<int, decimal>>());
 
-        var exactaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, bool)>();
+        var exactaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, bool)>();
         var winByRace = new Dictionary<string, IReadOnlyDictionary<int, decimal>>();
         const string oddsType = "Base";
 
@@ -136,7 +169,11 @@ public sealed class ToteGraphQLApiService : IToteApiService
             {
                 var raceName = name.Replace(" - EXACTA", "");
                 var productId = product.Id ?? "";
-                var poolNet = product.Type?.Pool?.Total?.NetAmount?.DecimalAmount ?? 0m;
+                var pool = product.Type?.Pool;
+                var poolNet = pool?.Total?.NetAmount?.DecimalAmount ?? 0m;
+                var carryIn = pool?.CarryIn?.NetAmount?.DecimalAmount ?? 0m;
+                var guarantee = pool?.Guarantee?.NetAmount?.DecimalAmount ?? 0m;
+                var topUp = pool?.Guarantee?.TopUpNetAmount?.DecimalAmount ?? 0m;
                 var linesNode = product.Type?.Lines?.Nodes ?? [];
                 var legsNode = product.Type?.Legs?.Nodes ?? [];
 
@@ -166,12 +203,60 @@ public sealed class ToteGraphQLApiService : IToteApiService
                 }
 
                 var hasLines = exactaOdds.Count > 0;
-                exactaByRace[raceName] = (productId, horseNames, exactaOdds, poolNet, hasLines);
+                exactaByRace[raceName] = (productId, horseNames, exactaOdds, poolNet, carryIn, guarantee, topUp, hasLines);
             }
         }
 
         return (exactaByRace, winByRace);
     }
+
+    private async Task<Dictionary<string, (string TimeDisplay, string CountryCode)>> LoadEventsAsync(CancellationToken ct)
+    {
+        var request = new GraphQLRequest { Query = GetUpcomingEventsQuery, Variables = null };
+        var response = await _graphqlClient.SendQueryAsync<EventsQueryData>(request, ct);
+        if (response.Errors?.Length > 0)
+            return new Dictionary<string, (string, string)>();
+
+        var nodes = response.Data?.Events?.Nodes;
+        if (nodes is null || nodes.Count == 0)
+            return new Dictionary<string, (string, string)>();
+
+        var map = new Dictionary<string, (string TimeDisplay, string CountryCode)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var evt in nodes)
+        {
+            var name = evt.Name?.Trim() ?? "";
+            if (string.IsNullOrEmpty(name)) continue;
+
+            var timeDisplay = "";
+            if (!string.IsNullOrEmpty(evt.ScheduledStartDateTime?.Iso8601)
+                && DateTimeOffset.TryParse(evt.ScheduledStartDateTime.Iso8601, out var dt))
+                timeDisplay = dt.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+            var countryCode = evt.Venue?.Country?.Alpha2Code?.Trim().ToUpperInvariant() ?? "";
+
+            if (!map.ContainsKey(name))
+                map[name] = (timeDisplay, countryCode);
+        }
+        return map;
+    }
+
+    private const string GetUpcomingEventsQuery = """
+        query GetUpcomingEvents {
+          events {
+            nodes {
+              id
+              name
+              scheduledStartDateTime { iso8601 }
+              status
+              venue {
+                id
+                name
+                country { alpha2Code }
+              }
+            }
+          }
+        }
+        """;
 
     private const string GetRaceProductsQuery = """
         query GetRaceProducts {
@@ -217,6 +302,52 @@ public sealed class ToteGraphQLApiService : IToteApiService
         }
         """;
 
+    #region Events response DTOs
+
+    private sealed class EventsQueryData
+    {
+        [JsonPropertyName("events")]
+        public EventsConnection? Events { get; set; }
+    }
+
+    private sealed class EventsConnection
+    {
+        [JsonPropertyName("nodes")]
+        public List<EventNode>? Nodes { get; set; }
+    }
+
+    private sealed class EventNode
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("scheduledStartDateTime")]
+        public ScheduledDateTimeNode? ScheduledStartDateTime { get; set; }
+
+        [JsonPropertyName("venue")]
+        public VenueNode? Venue { get; set; }
+    }
+
+    private sealed class ScheduledDateTimeNode
+    {
+        [JsonPropertyName("iso8601")]
+        public string? Iso8601 { get; set; }
+    }
+
+    private sealed class VenueNode
+    {
+        [JsonPropertyName("country")]
+        public CountryNode? Country { get; set; }
+    }
+
+    private sealed class CountryNode
+    {
+        [JsonPropertyName("alpha2Code")]
+        public string? Alpha2Code { get; set; }
+    }
+
+    #endregion
+
     #region Response DTOs (match Tote API / GraphQL.Client serialization)
 
     private sealed class ProductsQueryData
@@ -255,11 +386,21 @@ public sealed class ToteGraphQLApiService : IToteApiService
     private sealed class PoolNode
     {
         public PoolTotalNode? Total { get; set; }
+        [JsonPropertyName("carryIn")]
+        public PoolTotalNode? CarryIn { get; set; }
+        public PoolGuaranteeNode? Guarantee { get; set; }
     }
 
     private sealed class PoolTotalNode
     {
         public MoneyNode? NetAmount { get; set; }
+    }
+
+    private sealed class PoolGuaranteeNode
+    {
+        public MoneyNode? NetAmount { get; set; }
+        [JsonPropertyName("topUpNetAmount")]
+        public MoneyNode? TopUpNetAmount { get; set; }
     }
 
     private sealed class MoneyNode

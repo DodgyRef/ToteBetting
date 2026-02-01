@@ -152,10 +152,18 @@ public sealed class ValueBetService
     }
 
     /// <summary>
-    /// Gets available races that have EXACTA data.
+    /// Gets available races that have EXACTA data (with display name and country code).
     /// </summary>
-    public Task<IReadOnlyList<string>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<AvailableRace>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
     {
         return _toteApi.GetAvailableRacesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Clears cached race/event data so the next Load Races fetches fresh data from the API.
+    /// </summary>
+    public void InvalidateRaceDataCache()
+    {
+        _toteApi.InvalidateCache();
     }
 }

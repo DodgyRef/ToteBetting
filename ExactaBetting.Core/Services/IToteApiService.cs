@@ -17,7 +17,13 @@ public interface IToteApiService
     Task<RaceData?> GetRaceDataAsync(string raceName, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets all available race names that have EXACTA data.
+    /// Gets all available races that have EXACTA data, with display name (including start time) and country code.
     /// </summary>
-    Task<IReadOnlyList<string>> GetAvailableRacesAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AvailableRace>> GetAvailableRacesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears cached race and event data so the next load fetches fresh data from the API.
+    /// Call when the user explicitly requests a refresh (e.g. Load Races).
+    /// </summary>
+    void InvalidateCache();
 }

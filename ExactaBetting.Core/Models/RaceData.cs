@@ -20,6 +20,15 @@ public sealed class RaceData
     /// <summary>Pool net amount for dilution calculation.</summary>
     public decimal PoolNetAmount { get; init; }
 
+    /// <summary>Carry-in net amount (from previous pool).</summary>
+    public decimal CarryInNetAmount { get; init; }
+
+    /// <summary>Guarantee net amount (minimum pool guarantee).</summary>
+    public decimal GuaranteeNetAmount { get; init; }
+
+    /// <summary>Top-up net amount (added to meet guarantee).</summary>
+    public decimal TopUpNetAmount { get; init; }
+
     /// <summary>Whether the race has sufficient data for value analysis.</summary>
     public bool HasValidData => WinOdds.Count >= 2 && ExactaOdds.Count > 0 && PoolNetAmount > 0;
 }

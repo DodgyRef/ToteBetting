@@ -20,10 +20,20 @@ public sealed class SampleToteApiService : IToteApiService
         return races.GetValueOrDefault(raceName);
     }
 
-    public async Task<IReadOnlyList<string>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
+    public void InvalidateCache()
+    {
+        _cache = null;
+    }
+
+    public async Task<IReadOnlyList<AvailableRace>> GetAvailableRacesAsync(CancellationToken cancellationToken = default)
     {
         var races = await LoadRacesAsync(cancellationToken);
-        return races.Keys.OrderBy(k => k).ToList();
+        return races.Keys.OrderBy(k => k).Select(k =>
+        {
+            var race = races[k];
+            var poolText = FormatPoolDisplay(race);
+            return new AvailableRace { BaseName = k, DisplayName = $"{k}{poolText}".Trim(), CountryCode = "" };
+        }).ToList();
     }
 
     private async Task<IReadOnlyDictionary<string, RaceData>> LoadRacesAsync(CancellationToken cancellationToken)
@@ -56,7 +66,10 @@ public sealed class SampleToteApiService : IToteApiService
                     WinOdds = winOdds,
                     HorseNames = exacta.HorseNames,
                     ExactaOdds = exacta.ExactaOdds,
-                    PoolNetAmount = exacta.PoolNetAmount
+                    PoolNetAmount = exacta.PoolNetAmount,
+                    CarryInNetAmount = exacta.CarryInNetAmount,
+                    GuaranteeNetAmount = exacta.GuaranteeNetAmount,
+                    TopUpNetAmount = exacta.TopUpNetAmount
                 };
             }
 
@@ -67,6 +80,11 @@ public sealed class SampleToteApiService : IToteApiService
         {
             _loadLock.Release();
         }
+    }
+
+    private static string FormatPoolDisplay(RaceData race)
+    {
+        return $"  Pool £{race.PoolNetAmount:N0}  Carry-in £{race.CarryInNetAmount:N0}  Guarantee £{race.GuaranteeNetAmount:N0}  Top-up £{race.TopUpNetAmount:N0}";
     }
 
     private static IReadOnlyDictionary<int, decimal> DeriveSyntheticWinOdds(int horseCount)
@@ -81,14 +99,14 @@ public sealed class SampleToteApiService : IToteApiService
     /// Loads both WIN and EXACTA products from the single GetEXACTAProducts.json file.
     /// Uses WIN product lines for individual horse odds.
     /// </summary>
-    private async Task<(Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> ExactaOdds, decimal PoolNetAmount, bool HasLines)> ExactaByRace, Dictionary<string, IReadOnlyDictionary<int, decimal>> WinByRace)> LoadProductsAsync(CancellationToken ct)
+    private async Task<(Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> ExactaOdds, decimal PoolNetAmount, decimal CarryInNetAmount, decimal GuaranteeNetAmount, decimal TopUpNetAmount, bool HasLines)> ExactaByRace, Dictionary<string, IReadOnlyDictionary<int, decimal>> WinByRace)> LoadProductsAsync(CancellationToken ct)
     {
         await using var stream = await OpenJsonAsync("GetEXACTAProducts.json", ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
         var root = doc.RootElement;
         var products = root.GetProperty("data").GetProperty("products").GetProperty("nodes");
 
-        var exactaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, bool)>();
+        var exactaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, bool)>();
         var winByRace = new Dictionary<string, IReadOnlyDictionary<int, decimal>>();
         var oddsType = "Base";
 
@@ -123,8 +141,11 @@ public sealed class SampleToteApiService : IToteApiService
                 var raceName = name.Replace(" - EXACTA", "");
                 var productId = product.GetProperty("id").GetString() ?? "";
                 var type = product.GetProperty("type");
-                var pool = type.GetProperty("pool").GetProperty("total").GetProperty("netAmount").GetProperty("decimalAmount");
-                var poolNet = pool.ValueKind == JsonValueKind.Number ? pool.GetDecimal() : 0m;
+                var poolNode = type.GetProperty("pool");
+                var poolNet = GetDecimalFromPoolPath(poolNode, "total", "netAmount");
+                var carryIn = GetDecimalFromPoolPath(poolNode, "carryIn", "netAmount");
+                var guarantee = GetDecimalFromPoolPath(poolNode, "guarantee", "netAmount");
+                var topUp = GetDecimalFromPoolPath(poolNode, "guarantee", "topUpNetAmount");
                 var linesNode = type.GetProperty("lines").GetProperty("nodes");
                 var legsNode = type.GetProperty("legs").GetProperty("nodes");
 
@@ -161,11 +182,24 @@ public sealed class SampleToteApiService : IToteApiService
                 }
 
                 var hasLines = exactaOdds.Count > 0;
-                exactaByRace[raceName] = (productId, horseNames, exactaOdds, poolNet, hasLines);
+                exactaByRace[raceName] = (productId, horseNames, exactaOdds, poolNet, carryIn, guarantee, topUp, hasLines);
             }
         }
 
         return (exactaByRace, winByRace);
+    }
+
+    private static decimal GetDecimalFromPoolPath(JsonElement poolNode, string parent, string amountKey)
+    {
+        try
+        {
+            var el = poolNode.GetProperty(parent).GetProperty(amountKey).GetProperty("decimalAmount");
+            return el.ValueKind == JsonValueKind.Number ? el.GetDecimal() : 0m;
+        }
+        catch
+        {
+            return 0m;
+        }
     }
 
     private static async Task<Stream> OpenJsonAsync(string fileName, CancellationToken ct)
