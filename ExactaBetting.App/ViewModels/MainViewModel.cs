@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ExactaBetting.App.Services;
 using ExactaBetting.Core.Models;
 using ExactaBetting.Core.Services;
 
@@ -9,10 +10,12 @@ namespace ExactaBetting.App.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly ValueBetService _valueBetService;
+    private readonly SpreadsheetExportService _spreadsheetExport;
 
     /// <summary>Per-race (and per-settings) cache. Invalidated when Load Races is pressed.</summary>
     private bool _cacheInvalidatedByLoadRaces;
     private readonly Dictionary<string, List<ValueBet>> _cacheByKey = new();
+    private readonly Dictionary<string, List<TrifectaValueBet>> _cacheTrifectaByKey = new();
 
     /// <summary>All races from API (with display name and country). Filtered by CountryFilter into FilteredRaces.</summary>
     [ObservableProperty]
@@ -50,6 +53,12 @@ public partial class MainViewModel : ObservableObject
     private ObservableCollection<ValueBet> _allValueCalculations = [];
 
     [ObservableProperty]
+    private ObservableCollection<TrifectaValueBet> _trifectaValueBets = [];
+
+    [ObservableProperty]
+    private ObservableCollection<TrifectaValueBet> _allTrifectaCalculations = [];
+
+    [ObservableProperty]
     private string _statusMessage = "Select a race and tap Refresh to analyze value bets.";
 
     [ObservableProperty]
@@ -67,9 +76,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _topBetCount = 5;
 
-    public MainViewModel(ValueBetService valueBetService)
+    public MainViewModel(ValueBetService valueBetService, SpreadsheetExportService spreadsheetExport)
     {
         _valueBetService = valueBetService;
+        _spreadsheetExport = spreadsheetExport;
     }
 
     [RelayCommand]
@@ -80,6 +90,7 @@ public partial class MainViewModel : ObservableObject
         StatusMessage = "Loading races...";
         _cacheInvalidatedByLoadRaces = true;
         _cacheByKey.Clear();
+        _cacheTrifectaByKey.Clear();
         _valueBetService.InvalidateRaceDataCache();
         try
         {
@@ -131,10 +142,11 @@ public partial class MainViewModel : ObservableObject
         if (IsBusy || string.IsNullOrEmpty(SelectedRace)) return;
 
         var key = CacheKey(SelectedRace, ValueThresholdPercent, MinimumPoolSize, DefaultStake, TopBetCount);
-        if (!_cacheInvalidatedByLoadRaces && _cacheByKey.TryGetValue(key, out var cached))
+        if (!_cacheInvalidatedByLoadRaces && _cacheByKey.TryGetValue(key, out var cached) && _cacheTrifectaByKey.TryGetValue(key, out var cachedTrifecta))
         {
             ApplyCachedResults(cached);
-            StatusMessage = $"Loaded from cache ({ValueBets.Count} value bet(s), {AllValueCalculations.Count} total).";
+            ApplyTrifectaCachedResults(cachedTrifecta);
+            await ExportSpreadsheetAndNavigateAsync(cached, cachedTrifecta);
             return;
         }
 
@@ -142,6 +154,8 @@ public partial class MainViewModel : ObservableObject
         StatusMessage = "Analyzing value bets...";
         ValueBets.Clear();
         AllValueCalculations.Clear();
+        TrifectaValueBets.Clear();
+        AllTrifectaCalculations.Clear();
         try
         {
             var settings = new ValueBetSettings
@@ -152,16 +166,23 @@ public partial class MainViewModel : ObservableObject
                 TopBetCount = TopBetCount
             };
             var all = (await _valueBetService.GetAllValueCalculationsAsync(SelectedRace, settings)).ToList();
+            var allTrifecta = (await _valueBetService.GetAllTrifectaValueCalculationsAsync(SelectedRace, settings)).ToList();
 
             _cacheByKey[key] = all;
+            _cacheTrifectaByKey[key] = allTrifecta;
             _cacheInvalidatedByLoadRaces = false;
 
             ApplyCachedResults(all);
+            ApplyTrifectaCachedResults(allTrifecta);
+
             var topCount = all.Count(b => b.ValuePercent >= ValueThresholdPercent);
             var shown = Math.Min(topCount, TopBetCount);
-            StatusMessage = shown > 0
-                ? $"Found {shown} value bet(s) for {SelectedRace}. {all.Count} total combinations."
-                : $"No value bets above {ValueThresholdPercent}% threshold for {SelectedRace}. {all.Count} total combinations.";
+            var trifectaTopCount = allTrifecta.Count(b => b.ValuePercent >= ValueThresholdPercent);
+            var trifectaShown = Math.Min(trifectaTopCount, TopBetCount);
+            StatusMessage = shown > 0 || trifectaShown > 0
+                ? $"Found {shown} Exacta, {trifectaShown} Trifecta value bet(s) for {SelectedRace}."
+                : $"No value bets above {ValueThresholdPercent}% threshold for {SelectedRace}. {all.Count} Exacta, {allTrifecta.Count} Trifecta combinations.";
+            await ExportSpreadsheetAndNavigateAsync(all, allTrifecta);
         }
         catch (Exception ex)
         {
@@ -171,6 +192,29 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    private async Task ExportSpreadsheetAndNavigateAsync(List<ValueBet> allExacta, List<TrifectaValueBet> allTrifecta)
+    {
+        if (string.IsNullOrEmpty(SelectedRace)) return;
+
+        var raceData = await _valueBetService.GetRaceDataAsync(SelectedRace);
+        if (raceData != null)
+        {
+            var path = _spreadsheetExport.ExportToSpreadsheet(SelectedRace, raceData, allExacta, allTrifecta);
+            if (!string.IsNullOrEmpty(path))
+                StatusMessage = (StatusMessage?.TrimEnd() ?? "") + $"  Spreadsheet: {path}";
+        }
+
+        var nav = new Dictionary<string, object>
+        {
+            ["ValueBets"] = ValueBets.ToList(),
+            ["TrifectaValueBets"] = TrifectaValueBets.ToList(),
+            ["AllValueCalculations"] = AllValueCalculations.ToList(),
+            ["AllTrifectaCalculations"] = AllTrifectaCalculations.ToList(),
+            ["RaceName"] = SelectedRace ?? ""
+        };
+        await Shell.Current.GoToAsync("ValueBetsResults", nav);
     }
 
     private void ApplyCachedResults(List<ValueBet> all)
@@ -188,10 +232,32 @@ public partial class MainViewModel : ObservableObject
             ValueBets.Add(b);
     }
 
+    private void ApplyTrifectaCachedResults(List<TrifectaValueBet> all)
+    {
+        TrifectaValueBets.Clear();
+        AllTrifectaCalculations.Clear();
+        foreach (var b in all)
+            AllTrifectaCalculations.Add(b);
+        var top = all
+            .Where(b => b.ValuePercent >= ValueThresholdPercent)
+            .OrderByDescending(b => b.ValuePercent)
+            .Take(TopBetCount)
+            .ToList();
+        foreach (var b in top)
+            TrifectaValueBets.Add(b);
+    }
+
     [RelayCommand]
     private async Task OpenAllValueCalculationsAsync()
     {
         var bets = AllValueCalculations.ToList();
         await Shell.Current.GoToAsync("AllValueCalculations", new Dictionary<string, object> { ["Bets"] = bets });
+    }
+
+    [RelayCommand]
+    private async Task OpenAllTrifectaCalculationsAsync()
+    {
+        var bets = AllTrifectaCalculations.ToList();
+        await Shell.Current.GoToAsync("AllTrifectaCalculations", new Dictionary<string, object> { ["Bets"] = bets });
     }
 }

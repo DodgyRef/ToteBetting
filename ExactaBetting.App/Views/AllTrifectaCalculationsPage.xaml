@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:ExactaBetting.App.ViewModels"
+             xmlns:models="clr-namespace:ExactaBetting.Core.Models;assembly=ExactaBetting.Core"
+             x:Class="ExactaBetting.App.Views.AllTrifectaCalculationsPage"
+             x:DataType="vm:AllTrifectaCalculationsViewModel"
+             Title="{Binding Title}">
+
+    <Grid RowDefinitions="Auto,Auto,*" Padding="20" RowSpacing="12">
+        <Button Grid.Row="0"
+                Text="Back"
+                Command="{Binding BackCommand}"
+                HorizontalOptions="Start"
+                Margin="0,0,0,8" />
+
+        <!-- Filter: first horse number + reset -->
+        <Frame Grid.Row="1"
+               BorderColor="{StaticResource Gray400}"
+               CornerRadius="6"
+               Padding="12"
+               HasShadow="False"
+               Margin="0,0,0,8"
+               IsVisible="{Binding FirstHorseFilterOptions.Count, Converter={StaticResource CountToBool}}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" RowDefinitions="Auto">
+                <Label Grid.Row="0" Grid.Column="0" Text="First horse:" VerticalOptions="Center" />
+                <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Picker Title="All"
+                            ItemsSource="{Binding FirstHorseFilterOptions}"
+                            SelectedItem="{Binding SelectedFirstHorseFilterOption, Mode=TwoWay}"
+                            HorizontalOptions="Fill" />
+                    <Button Grid.Column="1"
+                            Text="Reset"
+                            Command="{Binding ResetFilterCommand}"
+                            VerticalOptions="Center" />
+                </Grid>
+            </Grid>
+        </Frame>
+
+        <ScrollView Grid.Row="2" VerticalScrollBarVisibility="Always">
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Bets}" Spacing="8">
+                <BindableLayout.EmptyView>
+                    <Label Text="No Trifecta calculations to show."
+                           TextColor="{StaticResource Gray600}"
+                           VerticalOptions="Center"
+                           HorizontalOptions="Center"
+                           Margin="0,40" />
+                </BindableLayout.EmptyView>
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="models:TrifectaValueBet">
+                        <Frame Margin="0,0,0,8"
+                               BorderColor="{StaticResource Gray400}"
+                               CornerRadius="6"
+                               Padding="12"
+                               HasShadow="False">
+                            <Grid RowDefinitions="Auto,Auto,Auto"
+                                  ColumnDefinitions="*,*,*,*,*,*"
+                                  RowSpacing="4"
+                                  ColumnSpacing="12">
+                                <Label Grid.Row="0" Grid.ColumnSpan="6"
+                                       Text="{Binding DisplayName}"
+                                       FontAttributes="Bold"
+                                       FontSize="14"
+                                       LineBreakMode="TailTruncation" />
+                                <Label Grid.Row="1" Grid.Column="0" Text="Value %" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                <Label Grid.Row="1" Grid.Column="1" Text="TOTE Odds" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                <Label Grid.Row="1" Grid.Column="2" Text="Fair Odds" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                <Label Grid.Row="1" Grid.Column="3" Text="Pool" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                <Label Grid.Row="1" Grid.Column="4" Text="Effective" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                <Label Grid.Row="1" Grid.Column="5" Text="Dilution" FontSize="11" TextColor="{StaticResource Gray600}" />
+                                <Label Grid.Row="2" Grid.Column="0">
+                                    <Label.Text>
+                                        <Binding Path="ValuePercent" StringFormat="{}{0:F1}%" />
+                                    </Label.Text>
+                                </Label>
+                                <Label Grid.Row="2" Grid.Column="1">
+                                    <Label.Text>
+                                        <Binding Path="ToteOdds" StringFormat="{}{0:F1}" />
+                                    </Label.Text>
+                                </Label>
+                                <Label Grid.Row="2" Grid.Column="2">
+                                    <Label.Text>
+                                        <Binding Path="FairOdds" StringFormat="{}{0:F1}" />
+                                    </Label.Text>
+                                </Label>
+                                <Label Grid.Row="2" Grid.Column="3">
+                                    <Label.Text>
+                                        <Binding Path="PoolSize" StringFormat="{}{0:N0}" />
+                                    </Label.Text>
+                                </Label>
+                                <Label Grid.Row="2" Grid.Column="4">
+                                    <Label.Text>
+                                        <Binding Path="EffectiveOdds" StringFormat="{}{0:F1}" />
+                                    </Label.Text>
+                                </Label>
+                                <Label Grid.Row="2" Grid.Column="5">
+                                    <Label.Text>
+                                        <Binding Path="DilutionFactor" StringFormat="{}{0:P1}" />
+                                    </Label.Text>
+                                </Label>
+                            </Grid>
+                        </Frame>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+</ContentPage>

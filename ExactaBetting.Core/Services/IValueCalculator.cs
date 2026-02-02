@@ -14,6 +14,12 @@ public interface IValueCalculator
     decimal GetFairExactaProbability(int first, int second, IReadOnlyDictionary<int, decimal> winOdds);
 
     /// <summary>
+    /// Computes the fair (implied) probability of Trifecta (first, second, third) from WIN pool odds.
+    /// Uses: P(A first, B second, C third) ≈ P(A) × P(B)/(1−P(A)) × P(C)/(1−P(A)−P(B)).
+    /// </summary>
+    decimal GetFairTrifectaProbability(int first, int second, int third, IReadOnlyDictionary<int, decimal> winOdds);
+
+    /// <summary>
     /// Gets fair decimal odds from probability.
     /// </summary>
     decimal GetFairOdds(decimal probability);

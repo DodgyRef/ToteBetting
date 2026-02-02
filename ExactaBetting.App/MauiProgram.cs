@@ -29,6 +29,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IToteApiService, ToteGraphQLApiService>();
 		builder.Services.AddSingleton<IValueCalculator, ValueCalculator>();
 		builder.Services.AddSingleton<ValueBetService>();
+		builder.Services.AddSingleton<SpreadsheetExportService>();
 		builder.Services.AddTransient<MainViewModel>();
 
 #if DEBUG

@@ -74,7 +74,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
             if (_cache is not null)
                 return _cache;
 
-            var (exactaByRace, winByRace) = await LoadProductsAsync(cancellationToken);
+            var (exactaByRace, winByRace, winPoolByRace, trifectaByRace) = await LoadProductsAsync(cancellationToken);
             _eventInfoByRaceName = await LoadEventsAsync(cancellationToken);
             var result = new Dictionary<string, RaceData>();
 
@@ -87,6 +87,9 @@ public sealed class ToteGraphQLApiService : IToteApiService
                 if (winOdds is null || winOdds.Count == 0)
                     winOdds = DeriveSyntheticWinOdds(exacta.HorseNames.Count);
 
+                var trifecta = trifectaByRace.GetValueOrDefault(raceName);
+                var winPool = winPoolByRace.GetValueOrDefault(raceName);
+
                 result[raceName] = new RaceData
                 {
                     RaceName = raceName,
@@ -94,10 +97,60 @@ public sealed class ToteGraphQLApiService : IToteApiService
                     WinOdds = winOdds,
                     HorseNames = exacta.HorseNames,
                     ExactaOdds = exacta.ExactaOdds,
+                    TrifectaOdds = trifecta.TrifectaOdds ?? EmptyTrifectaOdds,
+                    PoolGrossAmount = exacta.PoolGrossAmount,
                     PoolNetAmount = exacta.PoolNetAmount,
                     CarryInNetAmount = exacta.CarryInNetAmount,
                     GuaranteeNetAmount = exacta.GuaranteeNetAmount,
-                    TopUpNetAmount = exacta.TopUpNetAmount
+                    TopUpNetAmount = exacta.TopUpNetAmount,
+                    TrifectaPoolGrossAmount = trifectaByRace.ContainsKey(raceName) ? trifecta.PoolGrossAmount : 0m,
+                    TrifectaPoolNetAmount = trifectaByRace.ContainsKey(raceName) ? trifecta.PoolNetAmount : 0m,
+                    TrifectaCarryInNetAmount = trifectaByRace.ContainsKey(raceName) ? trifecta.CarryInNetAmount : 0m,
+                    TrifectaGuaranteeNetAmount = trifectaByRace.ContainsKey(raceName) ? trifecta.GuaranteeNetAmount : 0m,
+                    TrifectaTopUpNetAmount = trifectaByRace.ContainsKey(raceName) ? trifecta.TopUpNetAmount : 0m,
+                    WinPoolGrossAmount = winPool.Gross,
+                    WinPoolNetAmount = winPool.Net,
+                    WinCarryInNetAmount = winPool.CarryIn,
+                    WinGuaranteeNetAmount = winPool.Guarantee,
+                    WinTopUpNetAmount = winPool.TopUp
+                };
+            }
+
+            foreach (var (raceName, trifecta) in trifectaByRace)
+            {
+                if (result.ContainsKey(raceName))
+                    continue;
+                if (!trifecta.HasLines || trifecta.PoolNetAmount <= 0)
+                    continue;
+
+                var winOdds = winByRace.GetValueOrDefault(raceName);
+                if (winOdds is null || winOdds.Count == 0)
+                    winOdds = DeriveSyntheticWinOdds(trifecta.HorseNames.Count);
+
+                var winPool = winPoolByRace.GetValueOrDefault(raceName);
+                result[raceName] = new RaceData
+                {
+                    RaceName = raceName,
+                    EventId = trifecta.ProductId,
+                    WinOdds = winOdds,
+                    HorseNames = trifecta.HorseNames,
+                    ExactaOdds = EmptyExactaOdds,
+                    TrifectaOdds = trifecta.TrifectaOdds,
+                    PoolGrossAmount = 0m,
+                    PoolNetAmount = 0m,
+                    CarryInNetAmount = 0m,
+                    GuaranteeNetAmount = 0m,
+                    TopUpNetAmount = 0m,
+                    TrifectaPoolGrossAmount = trifecta.PoolGrossAmount,
+                    TrifectaPoolNetAmount = trifecta.PoolNetAmount,
+                    TrifectaCarryInNetAmount = trifecta.CarryInNetAmount,
+                    TrifectaGuaranteeNetAmount = trifecta.GuaranteeNetAmount,
+                    TrifectaTopUpNetAmount = trifecta.TopUpNetAmount,
+                    WinPoolGrossAmount = winPool.Gross,
+                    WinPoolNetAmount = winPool.Net,
+                    WinCarryInNetAmount = winPool.CarryIn,
+                    WinGuaranteeNetAmount = winPool.Guarantee,
+                    WinTopUpNetAmount = winPool.TopUp
                 };
             }
 
@@ -113,10 +166,15 @@ public sealed class ToteGraphQLApiService : IToteApiService
     private static string FormatPoolDisplay(RaceData race)
     {
         var parts = new List<string>();
-        parts.Add($"Pool £{race.PoolNetAmount:N0}");
+        parts.Add($"Exacta Pool £{race.PoolNetAmount:N0}");
         parts.Add($"Carry-in £{race.CarryInNetAmount:N0}");
         parts.Add($"Guarantee £{race.GuaranteeNetAmount:N0}");
         parts.Add($"Top-up £{race.TopUpNetAmount:N0}");
+        if (race.TrifectaPoolNetAmount > 0)
+        {
+            parts.Add($"Trifecta Pool £{race.TrifectaPoolNetAmount:N0}");
+            parts.Add($"Trif. Carry-in £{race.TrifectaCarryInNetAmount:N0}");
+        }
         return "  " + string.Join("  ", parts);
     }
 
@@ -128,7 +186,10 @@ public sealed class ToteGraphQLApiService : IToteApiService
         return d;
     }
 
-    private async Task<(Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> ExactaOdds, decimal PoolNetAmount, decimal CarryInNetAmount, decimal GuaranteeNetAmount, decimal TopUpNetAmount, bool HasLines)> ExactaByRace, Dictionary<string, IReadOnlyDictionary<int, decimal>> WinByRace)> LoadProductsAsync(CancellationToken ct)
+    private static readonly IReadOnlyDictionary<string, decimal> EmptyExactaOdds = new Dictionary<string, decimal>();
+    private static readonly IReadOnlyDictionary<string, decimal> EmptyTrifectaOdds = new Dictionary<string, decimal>();
+
+    private async Task<(Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> ExactaOdds, decimal PoolGrossAmount, decimal PoolNetAmount, decimal CarryInNetAmount, decimal GuaranteeNetAmount, decimal TopUpNetAmount, bool HasLines)> ExactaByRace, Dictionary<string, IReadOnlyDictionary<int, decimal>> WinByRace, Dictionary<string, (decimal Gross, decimal Net, decimal CarryIn, decimal Guarantee, decimal TopUp)> WinPoolByRace, Dictionary<string, (string ProductId, IReadOnlyDictionary<int, string> HorseNames, IReadOnlyDictionary<string, decimal> TrifectaOdds, decimal PoolGrossAmount, decimal PoolNetAmount, decimal CarryInNetAmount, decimal GuaranteeNetAmount, decimal TopUpNetAmount, bool HasLines)> TrifectaByRace)> LoadProductsAsync(CancellationToken ct)
     {
         var request = new GraphQLRequest { Query = GetRaceProductsQuery, Variables = null };
         var response = await _graphqlClient.SendQueryAsync<ProductsQueryData>(request, ct);
@@ -138,10 +199,12 @@ public sealed class ToteGraphQLApiService : IToteApiService
 
         var products = response.Data?.Products?.Nodes;
         if (products is null || products.Count == 0)
-            return (new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, bool)>(), new Dictionary<string, IReadOnlyDictionary<int, decimal>>());
+            return (new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, decimal, bool)>(), new Dictionary<string, IReadOnlyDictionary<int, decimal>>(), new Dictionary<string, (decimal, decimal, decimal, decimal, decimal)>(), new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, decimal, bool)>());
 
-        var exactaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, bool)>();
+        var exactaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, decimal, bool)>();
         var winByRace = new Dictionary<string, IReadOnlyDictionary<int, decimal>>();
+        var winPoolByRace = new Dictionary<string, (decimal Gross, decimal Net, decimal CarryIn, decimal Guarantee, decimal TopUp)>();
+        var trifectaByRace = new Dictionary<string, (string, IReadOnlyDictionary<int, string>, IReadOnlyDictionary<string, decimal>, decimal, decimal, decimal, decimal, decimal, bool)>();
         const string oddsType = "Base";
 
         foreach (var product in products)
@@ -152,6 +215,13 @@ public sealed class ToteGraphQLApiService : IToteApiService
             if (betTypeCode == "WIN")
             {
                 var raceName = name.Replace(" - WIN", "");
+                var pool = product.Type?.Pool;
+                var gross = pool?.Total?.GrossAmount?.DecimalAmount ?? 0m;
+                var net = pool?.Total?.NetAmount?.DecimalAmount ?? 0m;
+                var carryIn = pool?.CarryIn?.NetAmount?.DecimalAmount ?? 0m;
+                var guarantee = pool?.Guarantee?.NetAmount?.DecimalAmount ?? 0m;
+                var topUp = pool?.Guarantee?.TopUpNetAmount?.DecimalAmount ?? 0m;
+                winPoolByRace[raceName] = (gross, net, carryIn, guarantee, topUp);
                 var lines = product.Type?.Lines?.Nodes ?? [];
                 var winOdds = new Dictionary<int, decimal>();
                 var idx = 1;
@@ -170,6 +240,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
                 var raceName = name.Replace(" - EXACTA", "");
                 var productId = product.Id ?? "";
                 var pool = product.Type?.Pool;
+                var poolGross = pool?.Total?.GrossAmount?.DecimalAmount ?? 0m;
                 var poolNet = pool?.Total?.NetAmount?.DecimalAmount ?? 0m;
                 var carryIn = pool?.CarryIn?.NetAmount?.DecimalAmount ?? 0m;
                 var guarantee = pool?.Guarantee?.NetAmount?.DecimalAmount ?? 0m;
@@ -203,11 +274,53 @@ public sealed class ToteGraphQLApiService : IToteApiService
                 }
 
                 var hasLines = exactaOdds.Count > 0;
-                exactaByRace[raceName] = (productId, horseNames, exactaOdds, poolNet, carryIn, guarantee, topUp, hasLines);
+                exactaByRace[raceName] = (productId, horseNames, exactaOdds, poolGross, poolNet, carryIn, guarantee, topUp, hasLines);
+            }
+            else if (betTypeCode == "TRIFECTA")
+            {
+                var raceName = name.Replace(" - TRIFECTA", "");
+                var productId = product.Id ?? "";
+                var pool = product.Type?.Pool;
+                var poolGross = pool?.Total?.GrossAmount?.DecimalAmount ?? 0m;
+                var poolNet = pool?.Total?.NetAmount?.DecimalAmount ?? 0m;
+                var carryIn = pool?.CarryIn?.NetAmount?.DecimalAmount ?? 0m;
+                var guarantee = pool?.Guarantee?.NetAmount?.DecimalAmount ?? 0m;
+                var topUp = pool?.Guarantee?.TopUpNetAmount?.DecimalAmount ?? 0m;
+                var linesNode = product.Type?.Lines?.Nodes ?? [];
+                var legsNode = product.Type?.Legs?.Nodes ?? [];
+
+                var horseNames = new Dictionary<int, string>();
+                if (legsNode.Count > 0)
+                {
+                    var selections = legsNode[0].Selections?.Nodes ?? [];
+                    var idx = 1;
+                    foreach (var sel in selections)
+                    {
+                        horseNames[idx++] = sel?.Name ?? $"#{idx - 1}";
+                    }
+                }
+
+                var trifectaOdds = new Dictionary<string, decimal>();
+                foreach (var line in linesNode)
+                {
+                    var id = line.Id ?? "";
+                    var parts = id.Split('-');
+                    if (parts.Length < 3) continue;
+                    var first = parts[^3];
+                    var second = parts[^2];
+                    var third = parts[^1];
+                    var key = $"{first}-{second}-{third}";
+                    var odd = line.Odds?.FirstOrDefault(o => o?.Name == oddsType);
+                    if (odd != null)
+                        trifectaOdds[key] = odd.Decimal;
+                }
+
+                var hasLines = trifectaOdds.Count > 0;
+                trifectaByRace[raceName] = (productId, horseNames, trifectaOdds, poolGross, poolNet, carryIn, guarantee, topUp, hasLines);
             }
         }
 
-        return (exactaByRace, winByRace);
+        return (exactaByRace, winByRace, winPoolByRace, trifectaByRace);
     }
 
     private async Task<Dictionary<string, (string TimeDisplay, string CountryCode)>> LoadEventsAsync(CancellationToken ct)
@@ -260,7 +373,7 @@ public sealed class ToteGraphQLApiService : IToteApiService
 
     private const string GetRaceProductsQuery = """
         query GetRaceProducts {
-          products(betTypes: [WIN, EXACTA]) {
+          products(betTypes: [WIN, EXACTA, TRIFECTA]) {
             pageInfo { hasNextPage }
             nodes {
               id
@@ -393,6 +506,8 @@ public sealed class ToteGraphQLApiService : IToteApiService
 
     private sealed class PoolTotalNode
     {
+        [JsonPropertyName("grossAmount")]
+        public MoneyNode? GrossAmount { get; set; }
         public MoneyNode? NetAmount { get; set; }
     }
 
